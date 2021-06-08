@@ -1,7 +1,7 @@
 ####################################################
-#               Spectrum analyser
+#           Luminescence Analysis Tools 
 # Python scripts used for standard analysis in Luminescence Experiments
-
+#		Spectrum analyser
 # Features:
 #   - Sprectral data from Spectrometer + CCD camera:
 #       - Power Dependency Analysis on a series of spectra for each power excitation
@@ -11,7 +11,7 @@
 # (obtained through Andor SOLIS for Spectroscopy)
 
 # By Allison Pessoa, Nano-Optics Laboratory.
-# UFPE, Brazil.
+# UFPE, Brazil.  June, 2021
 ####################################################
 
 import numpy as np
