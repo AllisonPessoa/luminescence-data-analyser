@@ -1,3 +1,7 @@
+########
+#		Examples using the module
+#
+
 from SpectraAnalyser import *
 
 ########################### POWER DEPENDENCY ############################### %%
