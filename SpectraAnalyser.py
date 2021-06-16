@@ -1,5 +1,5 @@
 ####################################################
-#           Luminescence Analysis Tools 
+#           Luminescence Analysis Tools
 # Python scripts used for standard analysis in Luminescence Experiments
 #		Spectrum analyser
 # Features:
@@ -70,8 +70,12 @@ class Spectrum():
         spectrum_file.close()
         return (wavelength,intensity)
 
-    def correct_baseline(self):
-        self.intensity = self.intensity - np.mean(self.intensity[0:50])
+    def correct_baseline(self, interval):
+        index_of_separations = []
+        for value in interval:
+            nearest_wvlth_value = min(self.wavelength, key=lambda x: abs(x-value))
+            index_of_separations.append(self.wavelength.index(nearest_wvlth_value))
+        self.intensity = self.intensity - np.mean(self.intensity[index_of_separations[0]:index_of_separations[1]])
 
     def get_spectrum(self, normalized=False):
         #Returns a tuple with the spectral data: (wavelength, intensity)
@@ -168,7 +172,7 @@ class PowerDependence():
         color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
                           '#f781bf', '#a65628', '#984ea3',
                           '#999999', '#e41a1c', '#dede00']
-        marker_cycle = ['o','v','*','d']
+        marker_cycle = ['o','v','*','d','^','s','>','<','g']
 
         for i in range(number_of_bands): #for each region of interation
             linear_fit, cov_matrix = np.polyfit(log_power, log_areas[i], 1,
@@ -200,7 +204,7 @@ class PowerDependence():
         ax.tick_params(direction='in',which='both')
         for i in range(len(self.spectra_set)):
             wavelength, intensity = self.spectra_set[i].get_spectrum(normalized=normalized)
-            ax.plot(wavelength,intensity, alpha=1-0.15*i,
+            ax.plot(wavelength,intensity, alpha=1-0.05*i,
                                             label='Power = {:.1e} W'.format(self.power[i]))
 
         for value in integration_limits:
