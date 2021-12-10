@@ -3,7 +3,7 @@
 # Python scripts used for standard analysis in Luminescence Experiments
 #		Spectra analyser
 # Features:
-#   - Sprectral data from Spectrometer + CCD camera:
+#   - Sprectral data from Monochromator + CCD camera:
 #       - Power Dependency Analysis on a series of spectra for each power excitation
 #       - Thermometry Analysis on a series of spectra for each temperature
 
@@ -11,7 +11,7 @@
 # (obtained through Andor SOLIS for Spectroscopy)
 
 # By Allison Pessoa, Nano-Optics Laboratory.
-# UFPE, Brazil.  Last update: October, 2021
+# UFPE, Brazil.  Last update: December, 2021
 
 # Do not share this scrip, fully or partially, without proper permission.
 # allison.pessoa@ufpe.br | allisonpessoa@hotmail.com 
@@ -20,20 +20,30 @@
 import numpy as np
 
 import scipy.integrate as integrate
-import scipy.signal as signal
 
 import uncertainties
 from uncertainties.umath import *
 
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
+
 import matplotlib.font_manager
 
 matplotlib.rcParams['font.family'] = "sans-serif"
 matplotlib.rcParams['font.size'] = 7
 matplotlib.rcParams.update({'errorbar.capsize': 2})
 
+class DataOpener():
+    @staticmethod
+    def from_txt(filename):
+        spectrum_file = open(self.filename)
+        wavelength = []
+        intensity = []
+      
+        for line in spectrum_file.readlines():
+            wavelength.append(float(line.split(',')[0]))
+            intensity.append(float(line.split(',')[1]))
+              
 class Spectrum():
 # Contains all information about each individual spectrum
     def __init__(self, file_name):
@@ -44,17 +54,19 @@ class Spectrum():
 
         self.filename = file_name
         (self.wavelength, self.intensity) = self._load_file()
-
+        
+    @classmethod
+    def from_txt(cls, file_name):
+        
+        spectrum = cls(file_name)
+        
     def _load_file(self):
         #Loads and processes the spectrum file.
         spectrum_file = open(self.filename)
-        wavelength = []
-        intensity = []
 
-        if self.filename[-4:] == '.asc':
-            for line in spectrum_file.readlines():
-                wavelength.append(float(line.split('\t')[0].replace(',','.')))
-                intensity.append(float(line.split('\t')[1][:-1]))
+        for line in spectrum_file.readlines():
+            wavelength.append(float(line.split('\t')[0].replace(',','.')))
+            intensity.append(float(line.split('\t')[1][:-1]))
 
         #Better approach if I used an Adapter (Adapter Design Pattern) - To be implemented
         elif self.filename[-4:] == '.txt':
