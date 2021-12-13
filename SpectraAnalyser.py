@@ -22,7 +22,7 @@ import numpy as np
 import scipy.integrate as integrate
 
 import uncertainties
-from uncertainties.umath import *
+#from uncertainties.umath import *
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -33,106 +33,172 @@ matplotlib.rcParams['font.family'] = "sans-serif"
 matplotlib.rcParams['font.size'] = 7
 matplotlib.rcParams.update({'errorbar.capsize': 2})
 
-class DataOpener():
+class DataLoader():
     @staticmethod
-    def from_txt(filename):
-        spectrum_file = open(self.filename)
-        wavelength = []
-        intensity = []
-      
-        for line in spectrum_file.readlines():
+    def from_txt(file):
+        wavelength, intensity = [], []
+        for line in file.readlines():
             wavelength.append(float(line.split(',')[0]))
             intensity.append(float(line.split(',')[1]))
-              
-class Spectrum():
-# Contains all information about each individual spectrum
-    def __init__(self, file_name):
-        #file_name: .asc file spectral data. File must contain two columns.
-        #           first one is wavelength (decimal sep as ',')
-        #           second one is intensity (counts/second, decimal sep as '.')
-        #           Also accepts '.txt' files with columns separated by ','.
+            
+        return (wavelength, intensity)
+    
+    @staticmethod
+    def from_asc(file):
+        wavelength, intensity = [], []
 
-        self.filename = file_name
-        (self.wavelength, self.intensity) = self._load_file()
-        
-    @classmethod
-    def from_txt(cls, file_name):
-        
-        spectrum = cls(file_name)
-        
-    def _load_file(self):
-        #Loads and processes the spectrum file.
-        spectrum_file = open(self.filename)
-
-        for line in spectrum_file.readlines():
+        for line in file.readlines():
             wavelength.append(float(line.split('\t')[0].replace(',','.')))
             intensity.append(float(line.split('\t')[1][:-1]))
+            
+        return (wavelength, intensity)
+    
+    @staticmethod
+    def from_fits(file):
+        wavelength, intensity = [], []
+    
+        for line in file.readlines():
+            wavelength.append(float(line.split('\t')[0].replace(',','.')))
+            intensity.append(float(line.split('\t')[1][:-1]))
+            
+        return (wavelength, intensity)
 
-        #Better approach if I used an Adapter (Adapter Design Pattern) - To be implemented
-        elif self.filename[-4:] == '.txt':
-            for line in spectrum_file.readlines():
-                wavelength.append(float(line.split(',')[0]))
-                intensity.append(float(line.split(',')[1]))
+class Builder():
+    _available_loaders = {'txt': DataLoader.from_txt,
+                          'asc': DataLoader.from_asc,
+                          'fits': DataLoader.from_fits}
+    
+    def __init__(self, filename):
+        self.file = open(filename)
+        self.get_format(filename)
+        
+    def get_format(self, filename):
+        self.file_format =  filename[filename.rfind('.') + 1 :]
+    
+    def extract_data(self):
+        x, y = self._available_loaders[self.file_format](self.file)
+        return x, y
+    
+    def close(self):
+        self.file.close()
+        
+    @classmethod
+    def get_data(cls, filename):
+        builder = cls(filename)
+        x, y = builder.extract_data()
+        builder.close()
+        
+        return x, y
 
-        spectrum_file.close()
-        return (wavelength,intensity)
+class Spectrum():
+    def __init__(self, filename, normalized=False, aq_time=""):
+        self.filename = filename
+        self.wavelength, self.intensity = Builder.get_data(filename)
+        self.normalized = normalized
+        self.bands = {}
 
+    def _split_data(self, wavelength_values):
+        """Get the index of the nearest wavelength from the argument in the list.
+        - wavelength_values : list of floats
+        Returns: List of indexes of the same size as the argument
+        """
+        assert len(wavelength_values) == 2
+        indexes = []
+        (wavelength, intensity) = self.get_spectrum()
+        
+        for value in wavelength_values:
+            nearest_wvlth_value = min(wavelength, key=lambda x: abs(x-value))
+            indexes.append(wavelength.index(nearest_wvlth_value))
+        
+        band_wavelength = wavelength[indexes[0] : indexes[1]]
+        band_intensity = intensity[indexes[0] : indexes[1]]
+        
+        return band_wavelength, band_intensity
+    
     def correct_baseline(self, background):
-        #Subtracts the data spectrum from a given baseline spectrum.
-        wvl, intensity_background = background.get_spectrum(normalized=False)
-        for i in range(len(self.intensity)):
-            self.intensity[i] = self.intensity[i] - intensity_background[i]
-
-    def get_spectrum(self, normalized=False):
-        #Returns a tuple with the spectral data: (wavelength, intensity)
-        #If normalized is True, intensity will be normalized to values between 0 and 1
-        intensity = []
-
-        if normalized == True:
-            for j in range(len(self.intensity)):
-                intensity.append((self.intensity[j])/(max(self.intensity)))
+        """Subtracts (and modifies) the data spectrum from a given baseline spectrum.
+        background : Spectrum object
+        Returns: None.
+        -------"""
+        wvl, intensity_background = background.get_spectrum()
+        self.intensity = [(I - B) for I, B in zip(self.intensity, intensity_background)]
+    
+    def get_spectrum(self):
+        """Returns a tuple with the spectral data: (wavelength, intensity)
+        - normalized : Bool, optional
+                The default is False. If normalized is True, 
+                intensity will be normalized to values between 0 and 1
+        Returns 
+        Wavelengths : List
+        Intensity : List
+        """
+        if self.normalized == True:
+            intensity = [value/max(self.intensity) for value in self.intensity]
         else:
             intensity = self.intensity
             
         return (self.wavelength, intensity)
-
-    def get_area_under_spectrum(self, integration_limits, normalized=False):
-        #Returns a float with the area under the spectrum plot between integration_limits
-        #Integration_limits: list of two wavelengths separating the data regions
-        #                   to be integrated.
-        #If normalized is True, intensity will be normalized to values between 0 and 1
-        (wavelength, intensity) = self.get_spectrum(normalized=normalized)
-
-        index_of_separations = []
-        for value in integration_limits:
-            nearest_wvlth_value = min(wavelength, key=lambda x: abs(x-value))
-            index_of_separations.append(wavelength.index(nearest_wvlth_value))
-
-        intensity_to_integrate = intensity[index_of_separations[0]:index_of_separations[1]]
-        wavelength_to_integrate = wavelength[index_of_separations[0]:index_of_separations[1]]
-        area = integrate.simpson(intensity_to_integrate, wavelength_to_integrate)
-
-        return(area)
-
-    def plot_spectrum(self, normalized=False):
-        #Plots spectrum, and returns the figure and axis objects for further changes.
-        #If normalized is True, intensity will be normalized to values between 0 and 1
-        wavelength, intensity = self.get_spectrum(normalized = normalized)
-
+    
+    def add_band(self, name, limits, label=''):
+        
+        x_data, y_data = self._split_data(limits)
+        band = SpectrumBand(x_data, y_data, name, label)
+        self.bands[name] = band
+        return band
+        
+    def get_area_under_bands(self):
+        area = {}
+        for keys in self.bands:
+            area[keys] = self.bands[keys].get_area()
+        
+        return area
+    
+    def plot_spectrum(self):
+        """Plots spectrum, and returns the figure and axis objects for further changes.
+        - normalized : Bool, optional. If True, intensity will be normalized 
+                to values between 0 and 1
+            DESCRIPTION. The default is False.
+        """
+        wavelength, intensity = self.get_spectrum()
+        
         fig, ax = plt.subplots()
-        CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
-                          '#f781bf', '#a65628', '#984ea3',
-                          '#999999', '#e41a1c', '#dede00']
-        ax.set_prop_cycle(color=CB_color_cycle)
         ax.set_ylabel('Intensity (a.u)', size='x-large')
         ax.set_xlabel('Wavelength (nm)', size='x-large')
-        ax.grid(True)
         ax.tick_params(direction='in',which='both')
-
-        ax.plot(wavelength, intensity)
+        
+        ax.plot(wavelength, intensity, color='k')
         ax.set_title(self.filename)
-
+        
+        if self.bands is not None:
+            for keys in self.bands:
+                self.bands[keys].add_plot_band(ax, fig)
+        
         return fig, ax
+
+class SpectrumBand(Spectrum):
+    def __init__(self, wavelength, intensity, name, label):
+        self.wavelength, self.intensity = wavelength, intensity
+        self.name = name
+        self.label = label
+    
+    def add_band(self, *args):
+        pass
+    
+    def add_plot_band(self, ax, fig):
+        ax.axvline(self.wavelength[0], color='k', linestyle='--')
+        ax.axvline(self.wavelength[-1], color='k', linestyle='--')
+        ax.fill_between(self.wavelength, self.intensity, label=self.label)
+        ax.legend()
+    
+    def get_area(self):
+        """Returns a float with the area under the spectrum plot between integration_limits
+        - integration_limits : list of two floats
+                Two wavelengths separating the data regions to integration
+        - normalized : Bool, optional
+                The default is False.
+        """
+        area = integrate.simpson(self.intensity, self.wavelength)
+        return area
 
 class PowerDependence():
 # Calculates the linear dependence between excitation power and intensity

@@ -1,25 +1,32 @@
-from SpectraAnalyser import *
+import SpectraAnalyser as spr
 
-########################### POWER DEPENDENCY ############################### %%
-part_amado_batista = [
-            Spectrum('Experiments/1_Amado Batista/PowerDependency/20_20-01-2021/OD0,0.asc'),
-            Spectrum('Experiments/1_Amado Batista/PowerDependency/20_20-01-2021/OD0,1.asc'),
-            Spectrum('Experiments/1_Amado Batista/PowerDependency/20_20-01-2021/OD0,2.asc'),
-            Spectrum('Experiments/1_Amado Batista/PowerDependency/20_20-01-2021/OD0,4.asc'),
-            Spectrum('Experiments/1_Amado Batista/PowerDependency/20_20-01-2021/OD0,6.asc')
+#%% ### Individual spectra ###
+
+particle1_max_power = spr.Spectrum('Example Files/od1_0_0.asc')
+band1 = particle1_max_power.add_band('4F5/2', [817,830], r'$^4$F$_{5/2}$')
+band2 = particle1_max_power.add_band('4F3/2', [875,890], r'$^4$F$_{3/2}$')
+
+fig, ax = particle1_max_power.plot_spectrum()
+
+particle1_max_power.get_area_under_bands()
+#%% ### Power Dependency ###
+
+Particle_Example = [
+            spr.Spectrum('Example Files/od1_0_0.asc'),
+            spr.Spectrum('Example Files/od1_0_2.asc'),
+            spr.Spectrum('Example Files/od1_0_4.asc'),
+            spr.Spectrum('Example Files/od1_0_6.asc'),
+            spr.Spectrum('Example Files/od1_0_8.asc')
             ]
 
-pot_0 = 0.8*10**(-6) #Power (W), measured by neutral density filters
-percent = [1, 0.74, 0.53, 0.4, 0.23]
-pot = [x*pot_0 for x in percent]
+initial_power = 1e-6 #Power (W), measured by neutral density filters
+filters_neutral_density = [0,0.2,0.4,0.6,0.8]
+powers = [(initial_power/(10**ND)) for ND in filters_neutral_density]
 
-filters = [0,0.1,0.2,0.4,0.6]
-pot_2 = [(pot_0/(10**(i-filters[0]))) for i in filters]
+power_dependence_example = spr.PowerDependence(Particle_Example, powers)
+power_dependence_example.plot_power_law({'525 nm': [515,545], '544 nm': [545,570]},[1e-5,1e-6])
 
-power_dependence_part_amado_batista = PowerDependence(part_amado_batista, pot)
-power_dependence_part_amado_batista.plot_power_dependence({'525 nm': [515,545], '544 nm': [545,570]})
-
-########################### LIR ################################# %%
+#%% ### Band Intensity Ratio ###
 
 spectra_Amado_Batista = [
             Spectrum('Experiments/1_Amado Batista/LIR/22C.asc'),
@@ -46,21 +53,3 @@ LIR_Amado_Batista.calculate(interval, stat=True) #stat = True: returns the stati
 fig, ax = LIR_Amado_Batista[0].plot_spectrum()
 fig
 
-########################### LIFETIMES ################################# %%
-
-decay_curves_Amado = [
-            #DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 22,0C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 25,0C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 28,8C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 31,5C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 34,4C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 37,7C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 41,0C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 44,0C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 47,2C.txt'),
-            DecayCurve('Experiments/1_Amado Batista/LifeTime/525nm S 50,0C.txt')
-            ]
-
-temperatures = [T+273 for T in [25,28.8,31.5,34.4,37.7,41,44,47.2,50]]
-lifetime_Amado = LifeTime(decay_curves_Amado, temperatures, '525nm - Saturated')
-lifetime_Amado.calculate([3450,12500],n=10)
