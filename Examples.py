@@ -10,6 +10,7 @@ band2 = particle1_max_power.add_band('4F3/2', [879,886], r'$^4$F$_{3/2}$')
 fig, ax = particle1_max_power.plot_spectrum()
 
 particle1_max_power.get_area_under_bands()
+
 #%% ### Power Dependency ###
 particle_example = [
             spr.Spectrum('Example Files/od1_0_0.asc'),
@@ -33,6 +34,17 @@ fig, ax = fourF5_power_law.plot_power_law()
 
 fourF3_power_law = spr.PowerDependence(fourF3_band_set, powers, r'$^4$F$_{3/2}$')
 fourF3_power_law.plot_power_law(fig, ax)
+
+#%% ### Plot all spectra in a set ###
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+ax.set_ylabel('Intensity (a.u)', size='x-large')
+ax.set_xlabel('Wavelength (nm)', size='x-large')
+ax.tick_params(direction='in',which='both')
+ax.set_title("All spectra Example")
+
+for spectrum in particle_example:
+    spectrum.plot_spectrum(fig, ax, plot_bands = False, color='red')
 
 #%% ### Band Intensity Ratio ###
 

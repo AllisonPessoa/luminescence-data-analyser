@@ -153,7 +153,7 @@ class Spectrum():
         
         return area
     
-    def plot_spectrum(self, fig = None, ax = None):
+    def plot_spectrum(self, fig = None, ax = None, plot_bands = True, **kwargs):
         """Plots spectrum, and returns the figure and axis objects for further changes.
         - normalized : Bool, optional. If True, intensity will be normalized 
                 to values between 0 and 1
@@ -168,9 +168,9 @@ class Spectrum():
             ax.tick_params(direction='in',which='both')
             ax.set_title(self.filename)
         
-        ax.plot(wavelength, intensity, color='k')
+        ax.plot(wavelength, intensity, **kwargs)
 
-        if self.bands is not None:
+        if self.bands is not None and plot_bands is True:
             for keys in self.bands:
                 self.bands[keys].add_plot_band(fig, ax)
         
@@ -256,26 +256,6 @@ class PowerDependence():
         ax.legend()
     
         return fig, ax
-
-    # def plot_all_spectra(self, integration_limits, normalized=False):
-    #     #Plots all spectra in only one graph, with different collors, for comparison.
-    #     #Integration limits is for plotting a vertical dashed line indicating the integration
-    #     fig, ax = plt.subplots()
-    #     ax.set_prop_cycle(color=self.plots_CB_color_cycle)
-    #     ax.set_ylabel('Intensity (a.u)', size='x-large')
-    #     ax.set_xlabel('Wavelength (nm)', size='x-large')
-    #     ax.grid(True)
-    #     ax.tick_params(direction='in',which='both')
-        
-    #     for i in range(len(self.spectra_set)):
-    #         wavelength, intensity = self.spectra_set[i].get_spectrum(normalized=normalized)
-    #         ax.plot(wavelength,intensity, color=self.plots_cmap(len(self.spectra_set)*18-i*18),
-    #                                         label='Power = {:.1e} W'.format(self.power[i]))
-            
-    #     for value in integration_limits:
-    #         ax.axvline(value, ymax = 0.6, linestyle='--', color='black')
-            
-    #     return fig, ax
 
 class LIR():
 # Evaluates the LIR vs. Temperature dependence, and returns some thermometer parameters
