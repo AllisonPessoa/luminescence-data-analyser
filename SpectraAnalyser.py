@@ -153,7 +153,7 @@ class Spectrum():
         
         return area
     
-    def plot_spectrum(self):
+    def plot_spectrum(self, fig = None, ax = None):
         """Plots spectrum, and returns the figure and axis objects for further changes.
         - normalized : Bool, optional. If True, intensity will be normalized 
                 to values between 0 and 1
@@ -161,17 +161,18 @@ class Spectrum():
         """
         wavelength, intensity = self.get_spectrum()
         
-        fig, ax = plt.subplots()
-        ax.set_ylabel('Intensity (a.u)', size='x-large')
-        ax.set_xlabel('Wavelength (nm)', size='x-large')
-        ax.tick_params(direction='in',which='both')
+        if fig is None and ax is None:
+            fig, ax = plt.subplots()
+            ax.set_ylabel('Intensity (a.u)', size='x-large')
+            ax.set_xlabel('Wavelength (nm)', size='x-large')
+            ax.tick_params(direction='in',which='both')
+            ax.set_title(self.filename)
         
         ax.plot(wavelength, intensity, color='k')
-        ax.set_title(self.filename)
-        
+
         if self.bands is not None:
             for keys in self.bands:
-                self.bands[keys].add_plot_band(ax, fig)
+                self.bands[keys].add_plot_band(fig, ax)
         
         return fig, ax
 
@@ -181,10 +182,7 @@ class SpectrumBand(Spectrum):
         self.name = name
         self.label = label
     
-    def add_band(self, *args):
-        pass
-    
-    def add_plot_band(self, ax, fig):
+    def add_plot_band(self, fig, ax):
         ax.axvline(self.wavelength[0], color='k', linestyle='--')
         ax.axvline(self.wavelength[-1], color='k', linestyle='--')
         ax.fill_between(self.wavelength, self.intensity, label=self.label)
@@ -194,142 +192,90 @@ class SpectrumBand(Spectrum):
         """Returns a float with the area under the spectrum plot between integration_limits
         - integration_limits : list of two floats
                 Two wavelengths separating the data regions to integration
-        - normalized : Bool, optional
-                The default is False.
         """
         area = integrate.simpson(self.intensity, self.wavelength)
         return area
 
 class PowerDependence():
 # Calculates the linear dependence between excitation power and intensity
-    def __init__(self, spectra_set, power_set):
+    def __init__(self, band_set, power_set, label):
         #spectra_set: list (length M) of Spectrum objects each with a different excitation power.
         #             Mininum two
         #power_set: list (length M) of the excitation power density for each spectrum
         #              (order is important).
-        self.spectra_set = spectra_set
-        self.power = power_set
-        self.plots_cmap = plt.get_cmap("plasma")
-        self.plots_CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
-                                     '#f781bf', '#a65628', '#984ea3',
-                                     '#999999', '#e41a1c', '#dede00']
-        self.plots_marker_cycle = ['o','v','*','d','^','s','>','<','g']
+        self.label = label
+        self.band_set = band_set
+        self.power_set = power_set
+
+    def get_area_under_bands(self):
+        area_under_bands = [band.get_area() for band in self.band_set]
+        return area_under_bands
     
-    def get_intensities(self, integration_limits_dic, normalized=False):
-        #Returns a list of dictionaires including the band's name, 
-        #           and the integral of the spectra in the defined limits for all powers.
-        #Integration_limits_dic: Dictionary that defines two wavelength bands to compute the fittings 
-        #                       Example: {'band1': [510,535], 'band2': [535,554]}
-        #If normalized is True, intensity will be normalized to values between 0 and 1
-        number_of_bands = len(integration_limits_dic)
-        area_under_bands = []#[[p1,p2,p3,p4], [p1,p2,p3,p4], ...] ;
-                           #[p1,p2,p3,p4] = same band, different powers
-        
-        for i in range(number_of_bands):
-            area_under_bands.append([])
-            for spectrum in self.spectra_set:
-                area_under_bands[i].append( spectrum.get_area_under_spectrum(\
-                                             list(integration_limits_dic.values())[i], \
-                                                 normalized=normalized) )
-        
-        list_bands = []#list of dictionaries
-        for i in range(len(integration_limits_dic)):
-            list_bands.append(
-                {'bands_name': list(integration_limits_dic.keys())[i], \
-                 'intensities': area_under_bands[i]} )
-            
-        return list_bands
-    
-    def get_power_law(self, integration_limits_dic, power_limits, normalized=False):
+    def get_power_law_coeffs(self):
         #Returns the linear fittings parameters A and B of the log(Intensity) vs. log(power) plot
         #                   in a defined region of power. Intensity = 10^Y = 10^(AX + B) = 10^(A*log(pot)+B)
-        #Integration_limits_dic: Dictionary that defines two wavelength bands to compute the fittings 
-        #                       Example: {'band1': [510,535], 'band2': [535,554]}
-        #Power_limits: list of lists indicating the power separation to perform the fittings
-        #                       Example: [[1e2,1e3],[1e3,1e5]]
-        #If normalized is True, intensity will be normalized to values between 0 and 1
         
-        area_under_bands = self.get_intensities(integration_limits_dic, normalized=False)
-        index_of_separations = []
-        for value in power_limits:
-            nearest_min_value = min(self.power, key=lambda x: abs(x-value[0]))
-            nearest_max_value = min(self.power, key=lambda x: abs(x-value[1]))
-            index_of_separations.append([self.power.index(nearest_min_value),\
-                                         self.power.index(nearest_max_value)])
-                
-        list_bands = []#list of dictionaries
-        for i in range(len(area_under_bands)):
-            for j in range(len(power_limits)):
-                log_power_to_integrate = np.log10(self.power)[index_of_separations[j][1]-1: index_of_separations[j][0]+1] #1 and 0 are inverted here because the data goes for higher to low power
-                log_area_to_integrate = np.log10(area_under_bands[i]['intensities'])[index_of_separations[j][1]-1: index_of_separations[j][0]+1]
-                linear_fit, cov_matrix = np.polyfit(log_power_to_integrate, log_area_to_integrate, 1,
-                                cov=True) #([a[0]*x + a[1]],residual error,...)
-                (A, B) = uncertainties.correlated_values([linear_fit[0], linear_fit[1]], cov_matrix)
-                list_bands.append(
-                        {'bands_name': list(integration_limits_dic.keys())[i], \
-                        'power_region': [10**x for x in log_power_to_integrate],
-                        'A': A,
-                        'B': B} )
-        return list_bands
+        area_under_bands = self.get_area_under_bands()
+        log_power = np.log10(self.power_set)
+        log_area = np.log10(area_under_bands)
+        linear_fit, cov_matrix = np.polyfit(log_power, log_area, 1,
+                        cov=True) #([a[0]*x + a[1]],residual error,...)
+        (A, B) = uncertainties.correlated_values([linear_fit[0], linear_fit[1]], cov_matrix)
         
-    def plot_power_law(self, integration_limits_dic, power_limits, normalized=False):
-        #Plots the integrated intensities along with the linear fittings in a log-log scale
-        #Integration_limits_dic: Dictionary that defines two wavelength bands to compute the fittings 
-        #                       Example: {'band1': [510,535], 'band2': [535,554]}
-        #If normalized is True, intensity will be normalized to values between 0 and 1
-        
-        area_under_bands = self.get_intensities(integration_limits_dic, normalized=False)
-        fitting_parameters = self.get_power_law(integration_limits_dic, power_limits, normalized=False)
-        
-        fitting_lines = []
-        for i in range(len(fitting_parameters)):
-            A = fitting_parameters[i]['A']
-            B = fitting_parameters[i]['B']
-            power_to_integrate = fitting_parameters[i]['power_region']
-            fitting_lines.append([10**(x*A.n + B.n) for x in np.log10(power_to_integrate)])
+        return A, B
+    
+    def get_fitting_line(self):
+        A, B = self.get_power_law_coeffs()
+        fitting_line = [10**(x*A.n + B.n) for x in np.log10(self.power_set)]
                             #Int = 10^Y = 10^(AX + B) = 10^(A*log(pot)+B)
+        return fitting_line
 
-        fig, ax = plt.subplots()
-        ax.set_xlabel('Excitation Power Density (W/cm$^2$)', fontsize='x-large')
-        ax.set_ylabel('Signal Integral (a.u)', fontsize='x-large')
-        ax.set_xscale('log')
-        ax.set_yscale('log')
-        ax.grid(which='both')
-        ax.tick_params(direction='in',which='both')
-
-        for i in range(len(area_under_bands)):
-            intensity_to_plot = area_under_bands[i]['intensities']
-            ax.plot(self.power, intensity_to_plot, color = self.plots_CB_color_cycle[i],
-                                marker = self.plots_marker_cycle[i], linestyle='None', 
-                                label=list(integration_limits_dic.keys())[i])
-            
-        for i in range(len(fitting_parameters)):
-            power_to_plot = fitting_parameters[i]['power_region']
-            ax.plot(power_to_plot, fitting_lines[i], color = self.plots_CB_color_cycle[i], 
-                                linestyle='--', label = "Slope: {:.2f} \u00B1 {:.1}"
-                                .format(fitting_parameters[i]['A'].n, fitting_parameters[i]['A'].s))
-        ax.legend()
-        return fig, ax
-
-    def plot_all_spectra(self, integration_limits, normalized=False):
-        #Plots all spectra in only one graph, with different collors, for comparison.
-        #Integration limits is for plotting a vertical dashed line indicating the integration
-        fig, ax = plt.subplots()
-        ax.set_prop_cycle(color=self.plots_CB_color_cycle)
-        ax.set_ylabel('Intensity (a.u)', size='x-large')
-        ax.set_xlabel('Wavelength (nm)', size='x-large')
-        ax.grid(True)
-        ax.tick_params(direction='in',which='both')
+    def plot_power_law(self, fig = None, ax = None):
+        #Plots the integrated intensities along with the linear fittings in a log-log scale
+        area_under_bands = self.get_area_under_bands()
+        fitting_line  = self.get_fitting_line()
+        A, B = self.get_power_law_coeffs()
         
-        for i in range(len(self.spectra_set)):
-            wavelength, intensity = self.spectra_set[i].get_spectrum(normalized=normalized)
-            ax.plot(wavelength,intensity, color=self.plots_cmap(len(self.spectra_set)*18-i*18),
-                                            label='Power = {:.1e} W'.format(self.power[i]))
-            
-        for value in integration_limits:
-            ax.axvline(value, ymax = 0.6, linestyle='--', color='black')
-            
+        if fig is None and ax is None:
+            fig, ax = plt.subplots()        
+            ax.set_xlabel('Excitation Power Density (W/cm$^2$)', fontsize='x-large')
+            ax.set_ylabel('Signal Integral (a.u)', fontsize='x-large')
+            ax.set_xscale('log')
+            ax.set_yscale('log')
+            ax.grid(which='both')    
+            ax.tick_params(direction='in',which='both')
+
+
+        ax.plot(self.power_set, area_under_bands,
+                            marker = 'o', linestyle='None', 
+                            label=self.label)
+
+        ax.plot(self.power_set, fitting_line, 
+                            linestyle='--', label = "Slope: {:.2f} \u00B1 {:.1}"
+                            .format(A.n, A.s))
+        ax.legend()
+    
         return fig, ax
+
+    # def plot_all_spectra(self, integration_limits, normalized=False):
+    #     #Plots all spectra in only one graph, with different collors, for comparison.
+    #     #Integration limits is for plotting a vertical dashed line indicating the integration
+    #     fig, ax = plt.subplots()
+    #     ax.set_prop_cycle(color=self.plots_CB_color_cycle)
+    #     ax.set_ylabel('Intensity (a.u)', size='x-large')
+    #     ax.set_xlabel('Wavelength (nm)', size='x-large')
+    #     ax.grid(True)
+    #     ax.tick_params(direction='in',which='both')
+        
+    #     for i in range(len(self.spectra_set)):
+    #         wavelength, intensity = self.spectra_set[i].get_spectrum(normalized=normalized)
+    #         ax.plot(wavelength,intensity, color=self.plots_cmap(len(self.spectra_set)*18-i*18),
+    #                                         label='Power = {:.1e} W'.format(self.power[i]))
+            
+    #     for value in integration_limits:
+    #         ax.axvline(value, ymax = 0.6, linestyle='--', color='black')
+            
+    #     return fig, ax
 
 class LIR():
 # Evaluates the LIR vs. Temperature dependence, and returns some thermometer parameters

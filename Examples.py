@@ -3,15 +3,15 @@ import SpectraAnalyser as spr
 #%% ### Individual spectra ###
 
 particle1_max_power = spr.Spectrum('Example Files/od1_0_0.asc')
-band1 = particle1_max_power.add_band('4F5/2', [817,830], r'$^4$F$_{5/2}$')
-band2 = particle1_max_power.add_band('4F3/2', [875,890], r'$^4$F$_{3/2}$')
+
+band1 = particle1_max_power.add_band('4F5/2', [817,824], r'$^4$F$_{5/2}$')
+band2 = particle1_max_power.add_band('4F3/2', [879,886], r'$^4$F$_{3/2}$')
 
 fig, ax = particle1_max_power.plot_spectrum()
 
 particle1_max_power.get_area_under_bands()
 #%% ### Power Dependency ###
-
-Particle_Example = [
+particle_example = [
             spr.Spectrum('Example Files/od1_0_0.asc'),
             spr.Spectrum('Example Files/od1_0_2.asc'),
             spr.Spectrum('Example Files/od1_0_4.asc'),
@@ -19,11 +19,15 @@ Particle_Example = [
             spr.Spectrum('Example Files/od1_0_8.asc')
             ]
 
+for spectrum in particle_example:
+    spectrum.add_band('4F5/2', [817,824], r'$^4$F$_{5/2}$')
+    spectrum.add_band('4F3/2', [879,886], r'$^4$F$_{3/2}$')
+    
 initial_power = 1e-6 #Power (W), measured by neutral density filters
 filters_neutral_density = [0,0.2,0.4,0.6,0.8]
 powers = [(initial_power/(10**ND)) for ND in filters_neutral_density]
 
-power_dependence_example = spr.PowerDependence(Particle_Example, powers)
+power_dependence_example = spr.PowerDependence(particle_example, powers)
 power_dependence_example.plot_power_law({'525 nm': [515,545], '544 nm': [545,570]},[1e-5,1e-6])
 
 #%% ### Band Intensity Ratio ###
