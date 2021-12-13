@@ -19,16 +19,20 @@ particle_example = [
             spr.Spectrum('Example Files/od1_0_8.asc')
             ]
 
-for spectrum in particle_example:
-    spectrum.add_band('4F5/2', [817,824], r'$^4$F$_{5/2}$')
-    spectrum.add_band('4F3/2', [879,886], r'$^4$F$_{3/2}$')
+fourF5_band_set = [spectrum.add_band('4F5/2', [817,824])\
+                for spectrum in particle_example]
+fourF3_band_set = [spectrum.add_band('4F3/2', [879,886])\
+                for spectrum in particle_example]
     
 initial_power = 1e-6 #Power (W), measured by neutral density filters
 filters_neutral_density = [0,0.2,0.4,0.6,0.8]
 powers = [(initial_power/(10**ND)) for ND in filters_neutral_density]
 
-power_dependence_example = spr.PowerDependence(particle_example, powers)
-power_dependence_example.plot_power_law({'525 nm': [515,545], '544 nm': [545,570]},[1e-5,1e-6])
+fourF5_power_law = spr.PowerDependence(fourF5_band_set, powers, r'$^4$F$_{5/2}$')
+fig, ax = fourF5_power_law.plot_power_law()
+
+fourF3_power_law = spr.PowerDependence(fourF3_band_set, powers, r'$^4$F$_{3/2}$')
+fourF3_power_law.plot_power_law(fig, ax)
 
 #%% ### Band Intensity Ratio ###
 
