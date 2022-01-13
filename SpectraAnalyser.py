@@ -22,7 +22,7 @@ import numpy as np
 import scipy.integrate as integrate
 
 import uncertainties
-#from uncertainties.umath import *
+from uncertainties import umath
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -91,7 +91,7 @@ class Builder():
         return x, y
 
 class Spectrum():
-    def __init__(self, filename, normalized=False, aq_time=""):
+    def __init__(self, filename, normalized=False, int_time=1):
         self.filename = filename
         self.wavelength, self.intensity = Builder.get_data(filename)
         self.normalized = normalized
@@ -115,14 +115,23 @@ class Spectrum():
         
         return band_wavelength, band_intensity
     
-    def correct_baseline(self, background):
+    def correct_baseline(self, background, integration_time=1):
         """Subtracts (and modifies) the data spectrum from a given baseline spectrum.
         background : Spectrum object
         Returns: None.
         -------"""
         wvl, intensity_background = background.get_spectrum()
-        self.intensity = [(I - B) for I, B in zip(self.intensity, intensity_background)]
+        self.intensity = [(I - B)/integration_time for I, B in zip(self.intensity, intensity_background)]
     
+    def correct_background(self, points):
+        minimum_value = min(self.intensity)
+        corresp_index = self.intensity.index(minimum_value)
+        region_to_average = self.intensity[int(corresp_index - points/2) :\
+                                           int(corresp_index + points/2)]
+        baseline = np.mean(region_to_average)
+        print(baseline)
+        self.intensity = [(I - baseline) for I in self.intensity]
+        
     def get_spectrum(self):
         """Returns a tuple with the spectral data: (wavelength, intensity)
         - normalized : Bool, optional
@@ -196,7 +205,7 @@ class SpectrumBand(Spectrum):
         area = integrate.simpson(self.intensity, self.wavelength)
         return area
 
-class PowerDependence():
+class PowerDependency():
 # Calculates the linear dependence between excitation power and intensity
     def __init__(self, band_set, power_set, label):
         #spectra_set: list (length M) of Spectrum objects each with a different excitation power.
@@ -206,7 +215,12 @@ class PowerDependence():
         self.label = label
         self.band_set = band_set
         self.power_set = power_set
-
+    
+    def load_from_ND_filters(band_set, initial_power, filters_set, label):
+        power_set = [(initial_power/(10**ND)) for ND in filters_set]
+        
+        return PowerDependency(band_set, power_set, label)
+        
     def get_area_under_bands(self):
         area_under_bands = [band.get_area() for band in self.band_set]
         return area_under_bands
@@ -259,104 +273,84 @@ class PowerDependence():
 
 class LIR():
 # Evaluates the LIR vs. Temperature dependence, and returns some thermometer parameters
-    def __init__(self, spectra_set, temperature_set, particle_name):
-        self.spectra_set = spectra_set
-        self.temperatures = temperature_set
-        self.particle_name = particle_name
+    def __init__(self, sup_band_set, inf_band_set, temperature_set, label):
+        self.sup_band_set = sup_band_set
+        self.inf_band_set = inf_band_set
+        self.temperature_set = temperature_set
+        self.particle_name = label
 
-    def calculate(self, integration_limits_dic, normalized = False, stat = False):
-        #Integration_limits_dic: Dictionary that defines two wavelength bands
-        #                       to perform the LIR.
-        #                       Example: {'band1': [510,535], 'band2': [535,554]}
-
-        self.areas_band1 = []
-        self.areas_band2 = []
-
-        for spectrum in self.spectra_set:
-            self.areas_band1.append(spectrum.get_area_under_spectrum(list(integration_limits_dic.values())[0], normalized=normalized))
-            self.areas_band2.append(spectrum.get_area_under_spectrum(list(integration_limits_dic.values())[1], normalized=normalized))
-
-        self.LIR = [self.areas_band1[i]/self.areas_band2[i] for i in range(len(self.temperatures))]
-        self.ln_LIR = [np.log(LIR) for LIR in self.LIR]
-
-        self.inverse_temperature = [(1/T) for T in self.temperatures]
-        self.inverse_temperature_sqrd = [(1/T**2) for T in self.temperatures]
-
-        self.linear_fit_LIR, self.cov = np.polyfit(self.inverse_temperature, self.ln_LIR, 1, cov=True)
-        self.linear_fitted_curve = [x*self.linear_fit_LIR[0]+self.linear_fit_LIR[1] for x in self.inverse_temperature]
-
+    def get_LIR(self, temperature):
+        assert temperature in self.temperature_set, "Input temperature value not in temperature set"
+        index = self.temperature_set.index(temperature)
+        sup_intensity = self.sup_band_set[index].get_area()
+        inf_intensity = self.inf_band_set[index].get_area()
+        LIR = (sup_intensity/inf_intensity)
+        
+        return LIR
+    
+    def get_all_LIR(self):
+        LIR = []
+        for T in self.temperature_set:
+            LIR.append(self.get_LIR(T))
+        
+        return LIR
+    
+    def fit_Boltzmann(self):
+        LIR = self.get_all_LIR()
+        ln_LIR = [np.log(x) for x in LIR]
+        inverse_temperature = [(1/T) for T in self.temperature_set]        
+        
+        linear_fit_LIR, cov = np.polyfit(inverse_temperature, ln_LIR, 1, cov=True)
+    
+        return linear_fit_LIR, cov
+    
+    def get_thermometer_params(self):
+        
+        linear_fit_LIR, cov = self.fit_Boltzmann()
         # LIR = A*exp(alpha/T); alpha = DeltaE/K_T; beta = ln(A)
         # Using uncertainties library for error hadling
-        (self.alpha, self.beta) = uncertainties.correlated_values([self.linear_fit_LIR[0], self.linear_fit_LIR[1]], self.cov)
+        (alpha, beta) = uncertainties.correlated_values([linear_fit_LIR[0], linear_fit_LIR[1]], cov)
         Kb = 0.695034 #Boltzmann Constant, cm^-1 / K
-        self.energy_diff = abs(self.alpha)*Kb
+        energy_diff = abs(alpha)*Kb
 
-        self.LIR_calculated, self.relative_sens, self.deltaT = [],[],[]
-        for i in range(len(self.temperatures)):
-            T = self.temperatures[i]
-            self.LIR_calculated.append(exp(self.beta + self.alpha/T)) #'exp' function uses uncertainties.umath
-            self.relative_sens.append((abs(self.alpha)/(T**2)))
-            self.deltaT.append((1/self.relative_sens[i].n)*(self.LIR_calculated[i].s/self.LIR_calculated[i].n)) #n -> Nominal value; s -> Uncertainty Value
+        LIR_calculated, relative_sens, deltaT = [],[],[]
+        for i in range(len(self.temperature_set)):
+            T = self.temperature_set[i]
+            LIR_calculated.append(umath.exp(beta + alpha/T)) #'exp' function uses uncertainties.umath
+            relative_sens.append(100*(abs(alpha)/(T**2)))
+            deltaT.append((1/relative_sens[i].n)*(LIR_calculated[i].s/LIR_calculated[i].n)) #n -> Nominal value; s -> Uncertainty Value
 
-        if stat == True:
-            print("alpha:   \t {:.3f}".format(self.alpha))
-            print("beta:    \t {:.3f}".format(self.beta))
-            print("DeltaE:  \t {:.3f}".format(self.energy_diff))
-            print("S_r:     \t {:.3f}".format(self.relative_sens[0]))
-            print("DeltaT:  \t {:.3f}".format(self.deltaT[0]))
-            
-        return self.LIR
+        print("alpha:   \t {:.3f}".format(alpha))
+        print("beta:    \t {:.3f}".format(beta))
+        print("DeltaE:  \t {:.3f}".format(energy_diff))
+        print("S_r:     \t {:.3f}".format(relative_sens[0]))
+        print("DeltaT:  \t {:.3f}".format(deltaT[0]))
 
-    def Plot_spectra_maxmin(self, integration_limits_dic, normalized = False):
-        #PLots the maximum and mininum spectra, and also the integration limits used
-        integration_limits = []
-        for i in range(len(integration_limits_dic)):
-            integration_limits += list(integration_limits_dic.values())[i]
+        return alpha, beta
 
-        #Setups for spectrum plot
-        fig, ax = plt.subplots(constrained_layout=True)
-        CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
-                          '#f781bf', '#a65628', '#984ea3',
-                          '#999999', '#e41a1c', '#dede00']
-        ax.set_prop_cycle(color=CB_color_cycle)
-        ax.set_ylabel('Intensity (counts/s)', size=8)
-        ax.set_xlabel('Wavelength (nm)', size=8)
-        #ax.grid(True)
-        ax.tick_params(direction='in',which='both')
-
-        wavelength, intensity_min_temp = self.spectra_set[0].get_spectrum(normalized=normalized)
-        wavelength, intensity_max_temp = self.spectra_set[-1].get_spectrum(normalized=normalized)
-
-        ax.plot(wavelength, intensity_min_temp, 'b', linewidth=1,
-                            label='Temp = {:.1f} K'.format(self.temperatures[0]))
-        ax.plot(wavelength, intensity_max_temp, 'r--', linewidth=1,
-                            label='Temp = {:.1f} K'.format(self.temperatures[-1]))
-
-        for value in integration_limits:
-            ax.axvline(value, ymax = 0.6, linestyle='-.', linewidth = 1, color='black')
-        #ax.legend()
-
-        return fig,ax
-
-    def plot_LIR(self):
+    def plot_LIR(self, fig = None, ax = None):
         #Plots the dependence of the LIR with the temperature
-
-        #Setups for decay curves plots
-        fig, ax = plt.subplots(constrained_layout=True)
-        ax.set_xlabel(r'1/T $(x10^{-3})$ $(\mathrm{K}^{-1})$', size=8)
-        ax.set_ylabel(r'$\ln(R)$', size=8)
-        ax.tick_params(direction='in',which='both')
-        ax.grid()
-        sec_y = ax.twinx()
-        sec_y.set_ylabel(r'$S_R (\%)$', size=8, color='b')
-        sec_y.tick_params(direction='in',which='both', colors='b')
-
-        x_axis_scaled = [x*10**(3) for x in self.inverse_temperature]
-        ax.scatter(x_axis_scaled, self.ln_LIR, color='000000')
-        ax.plot(x_axis_scaled, self.linear_fitted_curve, color='000000')
-        ax.set_title(self.particle_name, size=8)
-
-        sens_rel = [100*x.n for x in self.relative_sens[::1]]
-        sec_y.plot(x_axis_scaled, sens_rel, 'b-')
+        LIR = self.get_all_LIR()
+        ln_LIR = [np.log(x) for x in LIR]
+        linear_fit_LIR, cov = self.fit_Boltzmann()
+        inverse_temperature = [(1/T) for T in self.temperature_set]
+        linear_fitted_curve = [x*linear_fit_LIR[0]+ linear_fit_LIR[1] for x in inverse_temperature]
+        
+        if fig is None and ax is None:
+            fig, ax = plt.subplots(constrained_layout=True)
+            ax.set_xlabel(r'1/T $(x10^{-3})$ $(\mathrm{K}^{-1})$', size=8)
+            ax.set_ylabel(r'$\ln(R)$', size=8)
+            ax.tick_params(direction='in',which='both')
+            ax.grid()
+            sec_y = ax.twinx()
+            sec_y.set_ylabel(r'$S_R (\%)$', size=8, color='b')
+            sec_y.tick_params(direction='in',which='both', colors='b')
+    
+        x_axis_scaled = [x*10**(3) for x in inverse_temperature]
+        ax.scatter(x_axis_scaled, ln_LIR, label=self.particle_name)
+        ax.plot(x_axis_scaled, linear_fitted_curve)
+        
+        #sens_rel = [100*x.n for x in self.relative_sens[::1]]
+        #sec_y.plot(x_axis_scaled, sens_rel, 'b-')
 
         return fig, ax
