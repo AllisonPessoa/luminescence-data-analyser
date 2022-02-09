@@ -18,8 +18,10 @@
 ####################################################
 
 import numpy as np
+import os
 
 import scipy.integrate as integrate
+import scipy
 
 import uncertainties
 from uncertainties import umath
@@ -48,6 +50,8 @@ class DataLoader():
         wavelength, intensity = [], []
 
         for line in file.readlines():
+            #wavelength.append(float(line.split(',')[0]))
+            #intensity.append(float(line.split(',')[1]))
             wavelength.append(float(line.split('\t')[0].replace(',','.')))
             intensity.append(float(line.split('\t')[1][:-1]))
             
@@ -96,7 +100,13 @@ class Spectrum():
         self.wavelength, self.intensity = Builder.get_data(filename)
         self.normalized = normalized
         self.bands = {}
-
+    
+    def loadDirectArray(wavelength, array, normalized=False, int_time=1):
+        np.savetxt('file.txt', np.c_[wavelength, array], delimiter=',')
+        obj = Spectrum('file.txt', normalized, int_time)
+        os.remove('file.txt')
+        return obj
+    
     def _split_data(self, wavelength_values):
         """Get the index of the nearest wavelength from the argument in the list.
         - wavelength_values : list of floats
@@ -115,7 +125,7 @@ class Spectrum():
         
         return band_wavelength, band_intensity
     
-    def correct_baseline(self, background, integration_time=1):
+    def subtract_background(self, background, integration_time=1):
         """Subtracts (and modifies) the data spectrum from a given baseline spectrum.
         background : Spectrum object
         Returns: None.
@@ -123,14 +133,18 @@ class Spectrum():
         wvl, intensity_background = background.get_spectrum()
         self.intensity = [(I - B)/integration_time for I, B in zip(self.intensity, intensity_background)]
     
-    def correct_background(self, points):
+    def subtract_flat_baseline_by_minimum(self, n_points=20):
         minimum_value = min(self.intensity)
         corresp_index = self.intensity.index(minimum_value)
-        region_to_average = self.intensity[int(corresp_index - points/2) :\
-                                           int(corresp_index + points/2)]
-        baseline = np.mean(region_to_average)
-        print(baseline)
-        self.intensity = [(I - baseline) for I in self.intensity]
+        region_to_average = self.intensity[corresp_index - n_points/2 : corresp_index + n_points/2]
+                       
+        flat_baseline = np.mean(region_to_average)
+        self.intensity = [(I - flat_baseline) for I in self.intensity]
+    
+    def subtract_flat_baseline_by_region(self, wvlt_interval):
+        baseline_wvlt, baseline_int = self._split_data(wvlt_interval)
+        flat_baseline = np.mean(baseline_int)
+        self.intensity = [(I - flat_baseline) for I in self.intensity]
         
     def get_spectrum(self):
         """Returns a tuple with the spectral data: (wavelength, intensity)
@@ -205,6 +219,62 @@ class SpectrumBand(Spectrum):
         area = integrate.simpson(self.intensity, self.wavelength)
         return area
 
+class SpectrumGaussian():
+    def __init__(self, wavelength, intensity, indexes, sigma):
+        self.wavelength = wavelength
+        self.intensity = intensity
+        self.indexes = indexes
+        self.sigma = sigma
+        self.centers = {i:self.wavelength[i] for i in self.indexes}
+        self.amplitudes = {i:self.intensity[i] for i in self.indexes}
+    
+    def gaussian(self, x, amp1,cen1,sigma1):
+        return amp1*(1/(sigma1*(np.sqrt(2*np.pi))))*(np.exp((-1.0/2.0)*(((x-cen1)/sigma1)**2)))
+    
+    def func(self, x, *ampl):
+        intens = 0
+        for i in range(len(self.indexes)):
+            intens += self.gaussian(x, ampl[i], 
+                                    self.centers[self.indexes[i]], 
+                                    self.sigma[self.indexes[i]])
+        return intens
+    
+    def fit_multiple_peak(self):
+        popt, pcov = scipy.optimize.curve_fit(self.func, self.wavelength, 
+                                              self.intensity, 
+                                              p0=list(self.amplitudes.values()))
+        perr = np.sqrt(np.diag(pcov))
+        
+        return popt, perr
+
+    def get_all_areas(self):
+        popt, perr = self.fit_multiple_peak()
+
+        area_gaussian = {}
+        for i in range(len(self.indexes)):
+            fitted_y = [self.gaussian(x, popt[i], 
+                                      self.centers[self.indexes[i]], 
+                                      self.sigma[self.indexes[i]]) 
+                        for x in self.wavelength]
+            area_gaussian[self.indexes[i]] = integrate.simps(fitted_y, self.wavelength)
+        
+        return area_gaussian
+    
+    def plot_all_curves(self, fig, ax):
+        popt, perr = self.fit_multiple_peak()
+
+        for i in range(len(self.indexes)):
+            fitted_y = [self.gaussian(x, popt[i], 
+                                      self.centers[self.indexes[i]], 
+                                      self.sigma[self.indexes[i]]) 
+                        for x in self.wavelength]
+            ax.plot(self.wavelength, fitted_y, '--', alpha=0.5, label=self.indexes[i])
+    
+        total = [self.func(x,*popt) for x in self.wavelength]
+        ax.plot(self.wavelength, total, 'r')
+        ax.plot(self.centers.values(), self.amplitudes.values(), 'ro')
+        
+    
 class PowerDependency():
 # Calculates the linear dependence between excitation power and intensity
     def __init__(self, band_set, power_set, label):
@@ -244,7 +314,7 @@ class PowerDependency():
                             #Int = 10^Y = 10^(AX + B) = 10^(A*log(pot)+B)
         return fitting_line
 
-    def plot_power_law(self, fig = None, ax = None):
+    def plot_power_law(self, fig = None, ax = None, **kwargs):
         #Plots the integrated intensities along with the linear fittings in a log-log scale
         area_under_bands = self.get_area_under_bands()
         fitting_line  = self.get_fitting_line()
@@ -262,11 +332,11 @@ class PowerDependency():
 
         ax.plot(self.power_set, area_under_bands,
                             marker = 'o', linestyle='None', 
-                            label=self.label)
+                            label=self.label, **kwargs)
 
         ax.plot(self.power_set, fitting_line, 
                             linestyle='--', label = "Slope: {:.2f} \u00B1 {:.1}"
-                            .format(A.n, A.s))
+                            .format(A.n, A.s), **kwargs)
         ax.legend()
     
         return fig, ax
@@ -304,7 +374,7 @@ class LIR():
     
         return linear_fit_LIR, cov
     
-    def get_thermometer_params(self):
+    def get_thermometer_params(self, print_params = False):
         
         linear_fit_LIR, cov = self.fit_Boltzmann()
         # LIR = A*exp(alpha/T); alpha = DeltaE/K_T; beta = ln(A)
@@ -320,11 +390,12 @@ class LIR():
             relative_sens.append(100*(abs(alpha)/(T**2)))
             deltaT.append((1/relative_sens[i].n)*(LIR_calculated[i].s/LIR_calculated[i].n)) #n -> Nominal value; s -> Uncertainty Value
 
-        print("alpha:   \t {:.3f}".format(alpha))
-        print("beta:    \t {:.3f}".format(beta))
-        print("DeltaE:  \t {:.3f}".format(energy_diff))
-        print("S_r:     \t {:.3f}".format(relative_sens[0]))
-        print("DeltaT:  \t {:.3f}".format(deltaT[0]))
+        if print_params == True:
+            print("alpha:   \t {:.3f}".format(alpha))
+            print("beta:    \t {:.3f}".format(beta))
+            print("DeltaE:  \t {:.3f}".format(energy_diff))
+            print("S_r:     \t {:.3f}".format(relative_sens[0]))
+            print("DeltaT:  \t {:.3f}".format(deltaT[0]))
 
         return alpha, beta
 
