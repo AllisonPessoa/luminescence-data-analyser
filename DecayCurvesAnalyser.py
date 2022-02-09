@@ -16,8 +16,8 @@
 import numpy as np
 
 import scipy.integrate as integrate
-import scipy.signal as signal
-import scipy.optimize as optimize
+import uncertainties
+from scipy.optimize import curve_fit
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -56,46 +56,30 @@ class DecayCurve():
             index_separations.append(self.time.index(nearest_time_value))
         
         return index_separations
-
     
-    def apply_savgol(self, time, intensity, wl, order):
-        filtered_data = signal.savgol_filter(intensity, wl, order)
-        filtered_deriv = signal.savgol_filter(intensity, wl, order, deriv=1, delta=time[1]-time[0])
-
-        return filtered_data, filtered_deriv
-    
-    def get_decay_curve(self, normalized=False, baseline=False, slice_data=False):
+    def get_decay_curve(self, normalized=False, slice_data=False):
         #Returns a tuple with the decay curve data: (time, intensity)
         #If normalized is True, intensity will be normalized to values between 0 and 1
-        intensity = []
-        
-        if baseline != False:
-            indexes = self._get_sep_indexes(baseline)
-            for x in self.intensity:
-                intensity.append(x - np.mean(self.intensity[indexes[0]:indexes[1]]))
-        else:
-            intensity = self.intensity
-        
-        if slice_data != False:
-            index_of_separations = self._get_sep_indexes(slice_data)
-
-            intensity = intensity[index_of_separations[0]:index_of_separations[1]]
-            time = self.time[index_of_separations[0]:index_of_separations[1]]
-            time = [t - min(slice_data) for t in time]
-        else:
-            time = self.time
+        intensity = self.intensity
+        time = self.time
         
         if normalized != False:
-            #mean = np.mean(intensity[normalized[0]:normalized[1]])
-            intensity = [x/normalized for x in intensity]
-            count_max = max(intensity)
+            max_index = intensity.index(max(intensity))
+            count_max = np.mean(intensity[max_index - 5:
+                                          max_index + 5])
             intensity = [(x/count_max) for x in intensity]
+            
+        if slice_data != False:
+            index_of_separations = self._get_sep_indexes(slice_data)
+            intensity = intensity[index_of_separations[0]:index_of_separations[1]]
+            time = time[index_of_separations[0]:index_of_separations[1]]
+            time = [t - min(slice_data) for t in time]
             
         return (time, intensity)
     
-    def calculate_lifetime(self, normalized=False, baseline=False, slice_data=False, plot=True):
+    def lifetime_area(self, normalized=False, slice_data=False, plot=True):
         
-        time, intensity = self.get_decay_curve(normalized=normalized, baseline=baseline, slice_data=slice_data)
+        time, intensity = self.get_decay_curve(normalized=normalized, slice_data=slice_data)
         weighted_intensity = [time[i]*intensity[i] for i in range(len(time))]
         
         weighted_area = integrate.trapezoid(weighted_intensity, time)
@@ -104,11 +88,25 @@ class DecayCurve():
         self.lifetime = weighted_area/norm_area
        
         if plot == True:
-            self.plot_decay_curve(normalized=normalized, baseline=baseline, slice_data=slice_data, v_lines=[self.lifetime])
+            self.plot_decay_curve(normalized=normalized, slice_data=slice_data, v_lines=[self.lifetime])
         
         return self.lifetime
     
-    def plot_decay_curve(self, normalized=False, baseline=False, slice_data=False, v_lines = None, h_lines = None):
+    def lifetime_monoExp(self, normalized=False, slice_data=False):
+        def func_monoexp(x,A,k,C):
+            return (A * np.exp(-k * x) + C)
+    
+        time, intensity = self.get_decay_curve(normalized=normalized, slice_data=slice_data)
+
+        popt, pcov = curve_fit(func_monoexp, time, intensity, p0 = [1,0.03,0.01])
+        print(popt)
+        A, k, C = uncertainties.correlated_values([popt[0], popt[1], popt[2]], pcov)
+        
+        fitting_line = [func_monoexp(x, *popt) for x in time]
+        return (A,k,C), fitting_line
+        
+            
+    def plot_decay_curve(self, normalized=False, slice_data=False, v_lines = None, h_lines = None):
         #Plots the decay curves. Returns the matplotlib object for any alterations, if necessary.
         #If normalized is True, intensity will be normalized to values between 0 and 1
 
@@ -120,7 +118,7 @@ class DecayCurve():
         ax.grid(which='both')
         ax.tick_params(direction='in',which='both')
 
-        time, intensity = self.get_decay_curve(normalized=normalized, baseline=baseline, slice_data=slice_data)
+        time, intensity = self.get_decay_curve(normalized=normalized, slice_data=slice_data)
         ax.plot(time, intensity)
 
         if v_lines != None:
