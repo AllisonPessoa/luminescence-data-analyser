@@ -316,7 +316,7 @@ class PowerDependency():
         Returns: tuple with the params values with their uncertainties
         """
         area_under_bands = self.get_area_under_bands()
-        popt, pcov = curve_fit(self.method, self.power_set, area_under_bands, p0)
+        popt, pcov = curve_fit(self.method, self.power_set, area_under_bands, p0, maxfev=5000)
         params = uncertainties.correlated_values(popt, pcov)
         return params
 
