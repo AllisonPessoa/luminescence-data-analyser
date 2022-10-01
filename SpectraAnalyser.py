@@ -435,7 +435,7 @@ class LIR_Analysis():
 
         return alpha, beta
 
-    def plot_LIR(self, fig = None, ax = None, fmt=None, **kwargs):
+    def plot_LIR(self, fig = None, ax = None, fmt=None, direct=False, **kwargs):
         """Plots the dependence of the LIR with the temperature in a ln(LIR) vs. 1/T plot. If fig and ax are passed as arguments, simply adds this datapoints to the plot. If not, creates a Fig and Axis objects
         fig, ax : matplotlib objects Figure and Axis
         Returns: (fig, ax) created or the same passed as argument
@@ -446,15 +446,25 @@ class LIR_Analysis():
         inverse_temperature = [(1/T) for T in self.temperature_set]
         linear_fitted_curve = [x*popt[1]+ popt[0] for x in inverse_temperature]
 
-        if fig is None and ax is None:
-            fig, ax = plt.subplots(constrained_layout=True)
-            ax.set_xlabel(r'1/T $(x10^{-3})$ $(\mathrm{K}^{-1})$', size=8)
-            ax.set_ylabel(r'$\ln(R)$', size=8)
-            ax.tick_params(direction='in',which='both')
-            ax.grid()
+        if direct is False:
+            if fig is None and ax is None:
+                fig, ax = plt.subplots(constrained_layout=True)
+                ax.set_xlabel(r'1/T $(x10^{-3})$ $(\mathrm{K}^{-1})$', size=8)
+                ax.set_ylabel(r'$\ln(R)$', size=8)
+                ax.tick_params(direction='in',which='both')
+                ax.grid()
 
-        x_axis_scaled = [x*10**(3) for x in inverse_temperature]
-        ax.errorbar(x=x_axis_scaled, y=[x.n for x in ln_LIR], yerr=[x.s for x in ln_LIR], label=self.particle_name, **kwargs)
-        ax.plot(x_axis_scaled, linear_fitted_curve, **kwargs)
+            x_axis_scaled = [x*10**(3) for x in inverse_temperature]
+            ax.errorbar(x=x_axis_scaled, y=[x.n for x in ln_LIR], yerr=[x.s for x in ln_LIR], label=self.particle_name, **kwargs)
+            ax.plot(x_axis_scaled, linear_fitted_curve, **kwargs)
+        else:
+            if fig is None and ax is None:
+                fig, ax = plt.subplots(constrained_layout=True)
+                ax.set_xlabel(r'Temperature (K)', size=8)
+                ax.set_ylabel(r'LIR', size=8)
+                ax.tick_params(direction='in',which='both')
+                ax.grid()
+            x_axis_scaled = [x*10**(3) for x in inverse_temperature]
+            ax.errorbar(x=self.temperature_set, y=[x.n for x in LIR], yerr=[x.s for x in LIR], label=self.particle_name, **kwargs)
 
         return fig, ax
