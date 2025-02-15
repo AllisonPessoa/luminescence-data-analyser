@@ -8,8 +8,8 @@ setuptools.setup(
     author='Allison Pessoa',
     author_email='allison.pessoa@ufpe.br',
     license='GNU GPL',
-    package_dir={"": "src"},
-    packages=setuptools.find_packages(where="src"),
+    package_dir={"": ""},
+    packages=setuptools.find_packages(where=""),
     install_requires=['matplotlib',
                       'scipy', 'numpy' 'PrettyTable', 'uncertainties'
                       ],
