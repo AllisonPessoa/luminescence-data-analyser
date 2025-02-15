@@ -1,7 +1,7 @@
 import setuptools
 
 setuptools.setup(
-    name='SpectraAnaliser',
+    name='SpectraAnalyser',
     version='1.0',    
     description='Code to analyse spectral data.',
     url='https://github.com/AllisonPessoa/luminescence-data-analyser',
