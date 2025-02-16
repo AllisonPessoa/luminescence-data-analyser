@@ -192,6 +192,27 @@ class Spectrum():
         area = integrate.simpson(y=y_data, x=x_data)
         return area
 
+    def get_spectrum_in_energy_space(self):
+        """Returns: (float) the wavelength barycenter under the defined limits
+        limits : list of two wavelengths values
+        -------"""
+        hc = 1240 #eV*nm
+        energy_interval = [hc/wavelength for wavelength in self.wavelength]
+        jacobian = [hc/energy**2 for energy in energy_interval]
+        energy_spectrum = np.multiply(self.intensity, jacobian)
+        
+        return Spectrum.loadDirectArray(energy_interval, energy_spectrum)
+            
+    def get_barycenter(self, wvlt_interval):
+        """Returns: (float) the barycenter under the defined limits
+        limits : list of two wavelengths values
+        -------"""
+        x_data, y_data = self._split_data(wvlt_interval)
+        weighted_area = integrate.simpson(y=np.multiply(y_data, x_data), x=x_data)
+        norm_area = integrate.simpson(y=y_data, x=x_data)
+        barycenter = weighted_area/norm_area
+        return barycenter
+        
     def plot_spectrum(self, fig = None, ax = None, **kwargs):
         """Plots the spectral data intensity vs. wavelength. If fig and ax are passed as arguments, simply adds this datapoints to the plot. If not, creates a Fig and Axis objects
         fig, ax : matplotlib objects Figure and Axis
