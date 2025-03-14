@@ -175,8 +175,8 @@ class Spectrum():
         -------"""
         max_wvlt, max_int = self._split_data(wvlt_interval)
         maximum_counts = np.max(max_int)
-        self.intensity = [(I/maximum_counts) for I in self.intensity]
-        return maximum_counts
+        norm_intensity = [(I/maximum_counts) for I in self.intensity]
+        return Spectrum.loadDirectArray(self.wavelength, norm_intensity)
 
     def get_spectrum(self):
         """Returns the spectral data: (wavelenght list, intensity list)
