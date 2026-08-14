@@ -1,4 +1,4 @@
-        ####################################################
+####################################################
 #           Luminescence Analysis Tools
 # Python scripts used for standard analysis in Luminescence Experiments
 #		Spectra analyser
@@ -16,6 +16,9 @@
 # Do not share this scrip, fully or partially, without proper permission.
 # allison.pessoa@ufpe.br | allisonpessoa@hotmail.com
 ####################################################
+
+import sys
+import xml.etree.ElementTree as ET
 
 import numpy as np
 
@@ -69,15 +72,91 @@ class DataLoader():
 
         return (wavelength, intensity)
 
+    # Datatype codes stored in the SPE header (offset 108)
+    _SPE_DTYPE = {0: np.float32, 1: np.int32, 2: np.int16,
+                  3: np.uint16, 5: np.float64, 6: np.uint8, 8: np.uint32}
+
+    @staticmethod
+    def _spe_read_at(file, offset, count, dtype):
+        """Reads 'count' values of 'dtype' from a given byte offset of a binary file."""
+        file.seek(offset)
+        return np.fromfile(file, dtype, count)
+
+    @staticmethod
+    def from_spe(file):
+        """Loads Princeton Instruments .spe files (WinSpec v2.x and LightField v3.x).
+
+        NOTE: 'file' must be opened in BINARY mode ('rb'). The Builder handles this
+        automatically because 'spe' is registered in Builder._binary_formats.
+
+        The 2D frame (nframes, ydim, xdim) is collapsed to a single 1D spectrum:
+        frames are averaged and CCD rows are summed (vertical binning). For a standard
+        1x binned spectrum (ydim=1, nframes=1) this is just the raw row.
+
+        Returns: (wavelength, intensity) as plain Python lists, matching the other
+        loaders so that Spectrum, PowerDependency and LIR_Analysis work unchanged.
+        """
+        rd = DataLoader._spe_read_at
+        ver   = float(rd(file, 1992, 1, np.float32)[0])
+        xdim  = int(rd(file, 42,   1, np.uint16)[0])
+        ydim  = int(rd(file, 656,  1, np.uint16)[0])
+        dcode = int(rd(file, 108,  1, np.int16)[0])
+        nfr   = int(rd(file, 1446, 1, np.int32)[0]) or 1
+        dtype = DataLoader._SPE_DTYPE[dcode]
+
+        # Frame data always starts right after the fixed 4100-byte header.
+        file.seek(4100)
+        n = nfr * ydim * xdim
+        data = np.fromfile(file, dtype, n).astype(np.float64).reshape(nfr, ydim, xdim)
+
+        wavelength = None
+        if ver >= 3.0:
+            # v3.x: wavelength calibration is in a trailing XML footer.
+            xoff = int(rd(file, 678, 1, np.uint64)[0])
+            file.seek(xoff)
+            xml = file.read().decode('utf-8', 'ignore')
+            xml = xml[xml.find('<'):]
+            try:
+                root = ET.fromstring(xml)
+                for el in root.iter():
+                    if el.tag.endswith('Wavelength') and el.text and ',' in el.text:
+                        wavelength = np.array([float(v) for v in el.text.split(',')])
+                        break
+            except ET.ParseError:
+                pass
+        else:
+            # v2.x: calibration polynomial embedded in the header.
+            order = int(rd(file, 3101, 1, np.uint8)[0])
+            coeff = rd(file, 3263, 6, np.float64)
+            if np.any(coeff[:order + 1]):
+                p = np.arange(1, xdim + 1)  # WinSpec numbers pixels from 1
+                wavelength = sum(coeff[j] * p ** j for j in range(order + 1))
+
+        if wavelength is None:
+            # No valid calibration: fall back to pixel index and warn loudly,
+            # because silently returning pixels would corrupt LIR/thermometry.
+            wavelength = np.arange(xdim, dtype=float)
+            print("[SpectraAnalyser] WARNING: no wavelength calibration in '%s'; "
+                  "x-axis is PIXEL INDEX, not nm." % getattr(file, 'name', '?'),
+                  file=sys.stderr)
+
+        intensity = data.mean(axis=0).sum(axis=0)   # avg over frames, sum over rows
+        return (wavelength.tolist(), intensity.tolist())
+
 class Builder():
     """Builder to choose the correct DataLoader function"""
     _available_loaders = {'txt': DataLoader.from_txt,
                           'asc': DataLoader.from_asc,
-                          'fits': DataLoader.from_fits}
+                          'fits': DataLoader.from_fits,
+                          'spe': DataLoader.from_spe}
+
+    # Formats that must be opened in binary mode instead of text mode.
+    _binary_formats = {'spe'}
 
     def __init__(self, filename):
-        self.file = open(filename)
         self.get_format(filename)
+        mode = 'rb' if self.file_format in self._binary_formats else 'r'
+        self.file = open(filename, mode)
 
     def get_format(self, filename):
         self.file_format =  filename[filename.rfind('.') + 1 :]
@@ -175,8 +254,8 @@ class Spectrum():
         -------"""
         max_wvlt, max_int = self._split_data(wvlt_interval)
         maximum_counts = np.max(max_int)
-        norm_intensity = [(I/maximum_counts) for I in self.intensity]
-        return Spectrum.loadDirectArray(self.wavelength, norm_intensity)
+        self.intensity = [(I/maximum_counts) for I in self.intensity]
+        return maximum_counts
 
     def get_spectrum(self):
         """Returns the spectral data: (wavelenght list, intensity list)
@@ -192,27 +271,6 @@ class Spectrum():
         area = integrate.simpson(y=y_data, x=x_data)
         return area
 
-    def get_spectrum_in_energy_space(self):
-        """Returns: (float) the wavelength barycenter under the defined limits
-        limits : list of two wavelengths values
-        -------"""
-        hc = 1240 #eV*nm
-        energy_interval = [hc/wavelength for wavelength in self.wavelength]
-        jacobian = [hc/energy**2 for energy in energy_interval]
-        energy_spectrum = np.multiply(self.intensity, jacobian)
-        
-        return Spectrum.loadDirectArray(energy_interval, energy_spectrum)
-            
-    def get_barycenter(self, wvlt_interval):
-        """Returns: (float) the barycenter under the defined limits
-        limits : list of two wavelengths values
-        -------"""
-        x_data, y_data = self._split_data(wvlt_interval)
-        weighted_area = integrate.simpson(y=np.multiply(y_data, x_data), x=x_data)
-        norm_area = integrate.simpson(y=y_data, x=x_data)
-        barycenter = weighted_area/norm_area
-        return barycenter
-        
     def plot_spectrum(self, fig = None, ax = None, **kwargs):
         """Plots the spectral data intensity vs. wavelength. If fig and ax are passed as arguments, simply adds this datapoints to the plot. If not, creates a Fig and Axis objects
         fig, ax : matplotlib objects Figure and Axis
